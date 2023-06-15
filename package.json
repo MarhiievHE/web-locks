@@ -48,7 +48,7 @@
   "main": "web-locks.js",
   "files": [],
   "engines": {
-    "node": ">=11.0.0"
+    "node": ">=16.0.0"
   },
   "readmeFilename": "README.md",
   "scripts": {
