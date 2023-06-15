@@ -104,7 +104,7 @@ class LockManager {
     let aborted = null;
     if (signal) {
       aborted = new Promise((resolve, reject) => {
-        signal.on('abort', reject);
+        signal.addEventListener('abort', reject, { once: true });
       });
       await Promise.race([finished, aborted]);
     } else {
@@ -177,6 +177,12 @@ class AbortSignal extends EventEmitter {
     this.on('abort', () => {
       this.aborted = true;
     });
+  }
+
+  addEventListener(type, listener, options) {
+    const { once = false } = options;
+    if (once) this.once(type, listener);
+    else this.on(type, listener);
   }
 }
 
