@@ -89,7 +89,21 @@ class LockManager {
       handler = options;
       options = {};
     }
-    const { mode = 'exclusive', signal = null } = options;
+    const {
+      mode = 'exclusive',
+      signal = null,
+      ifAvailable = false,
+      steal = false,
+    } = options;
+
+    if (name[0] === '-') throw new Error('NotSupportedError');
+    if (steal === true && ifAvailable === true)
+      throw new Error('NotSupportedError');
+    if (steal === true && mode !== 'exclusive')
+      throw new Error('NotSupportedError');
+    if (signal && (steal === true || ifAvailable === true))
+      throw new Error('NotSupportedError');
+    if (signal && signal.aborted) throw new Error(signal.reason);
 
     let lock = this.collection.get(name);
     if (!lock) {
