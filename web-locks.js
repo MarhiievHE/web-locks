@@ -22,10 +22,28 @@ class Lock {
     if (!buffer) Atomics.store(this.flag, 0, UNLOCKED);
   }
 
-  enter(handler) {
-    return new Promise((resolve) => {
-      this.queue.push({ handler, resolve });
+  enter(handler, signal) {
+    return new Promise((resolve, reject) => {
+      const task = {
+        handler,
+        signal,
+        resolve,
+        reject,
+        rejected: false,
+        entered: false,
+      };
+      this.queue.push(task);
       this.trying = true;
+      signal.addEventListener(
+        'abort',
+        () => {
+          if (!task.entered) {
+            task.rejected = true;
+            reject(new Error(`AbortError: ${signal.reason}`));
+          }
+        },
+        { once: true }
+      );
       setTimeout(() => {
         this.tryEnter();
       }, 0);
@@ -38,11 +56,25 @@ class Lock {
     if (prev === LOCKED) return;
     this.owner = true;
     this.trying = false;
-    const { handler, resolve } = this.queue.shift();
-    handler(this).finally(() => {
+    const task = this.queue.shift();
+    task.entered = true;
+    const { handler, signal, resolve, reject, rejected } = task;
+    if (signal.aborted) {
       this.leave();
-      resolve();
-    });
+      if (!rejected) {
+        reject(new Error(`AbortError: ${signal.reason}`));
+      }
+      return;
+    }
+    handler(this)
+      .then((res) => {
+        this.leave();
+        resolve(res);
+      })
+      .catch((err) => {
+        this.leave();
+        reject(err);
+      });
   }
 
   leave() {
@@ -103,7 +135,6 @@ class LockManager {
       throw new Error('NotSupportedError');
     if (signal && (steal === true || ifAvailable === true))
       throw new Error('NotSupportedError');
-    if (signal && signal.aborted) throw new Error(signal.reason);
 
     let lock = this.collection.get(name);
     if (!lock) {
@@ -112,24 +143,18 @@ class LockManager {
       const { buffer } = lock;
       const message = { webLocks: true, kind: 'create', name, mode, buffer };
       locks.send(message);
-    }
+    } else if (lock.mode !== mode) throw new Error('The mode can`t be changed');
 
-    const finished = lock.enter(handler);
-    let aborted = null;
-    if (signal) {
-      aborted = new Promise((resolve, reject) => {
-        signal.addEventListener('abort', reject, { once: true });
-      });
-      await Promise.race([finished, aborted]);
-    } else {
-      await finished;
+    if (signal.aborted) {
+      throw new Error(`AbortError: ${signal.reason}`);
     }
+    const finished = await lock.enter(handler, signal);
 
     setTimeout(() => {
       lock.tryEnter();
     }, 0);
 
-    return undefined;
+    return finished;
   }
 
   query() {
