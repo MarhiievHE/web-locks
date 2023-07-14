@@ -36,16 +36,20 @@ class Lock {
       };
       this.queue.push(task);
       this.trying = true;
-      signal.addEventListener(
-        'abort',
-        () => {
-          if (!task.entered) {
-            task.rejected = true;
-            reject(new Error(`AbortError: ${signal.reason}`));
-          }
-        },
-        { once: true }
-      );
+
+      if (signal) {
+        signal.addEventListener(
+          'abort',
+          () => {
+            if (!task.entered) {
+              task.rejected = true;
+              reject(new Error(`AbortError: ${signal.reason}`));
+            }
+          },
+          { once: true }
+        );
+      }
+
       setTimeout(() => {
         this.tryEnter();
       }, 0);
@@ -61,7 +65,7 @@ class Lock {
     const task = this.queue.shift();
     task.entered = true;
     const { handler, signal, resolve, reject, rejected } = task;
-    if (signal.aborted) {
+    if (signal && signal.aborted) {
       this.leave();
       if (!rejected) {
         reject(new Error(`AbortError: ${signal.reason}`));
