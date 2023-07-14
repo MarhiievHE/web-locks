@@ -7,6 +7,8 @@ const isWorkerThread = !isMainThread;
 
 const LOCKED = 0;
 const UNLOCKED = 1;
+const DEFAULT_CALL = 0;
+const DIRECT_CALL = 1;
 
 let locks = null; // LockManager instance
 
@@ -85,6 +87,26 @@ class Lock {
     locks.send(message);
     this.tryEnter();
   }
+
+  tryDirect(handler) {
+    return new Promise((resolve, reject) => {
+      if (this.queue.length !== 0) {
+        handler(null).then(resolve).catch(reject);
+      }
+      const prev = Atomics.exchange(this.flag, 0, LOCKED);
+      if (prev === LOCKED) handler(null).then(resolve).catch(reject);
+      this.owner = true;
+      handler(this)
+        .then((res) => {
+          this.leave();
+          resolve(res);
+        })
+        .catch((err) => {
+          this.leave();
+          reject(err);
+        });
+    });
+  }
 }
 
 class LockManagerSnapshot {
@@ -145,16 +167,21 @@ class LockManager {
       locks.send(message);
     } else if (lock.mode !== mode) throw new Error('The mode can`t be changed');
 
-    if (signal.aborted) {
+    if (signal && signal.aborted) {
       throw new Error(`AbortError: ${signal.reason}`);
     }
-    const finished = await lock.enter(handler, signal);
 
-    setTimeout(() => {
-      lock.tryEnter();
-    }, 0);
+    let type = DEFAULT_CALL;
+    if (ifAvailable) type = DIRECT_CALL;
 
-    return finished;
+    const func = [
+      async () => lock.enter(handler, signal),
+      async () => lock.tryDirect(handler),
+    ];
+
+    const result = await func[type]();
+
+    return result;
   }
 
   query() {
